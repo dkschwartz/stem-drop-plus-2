@@ -178,3 +178,47 @@ def test_voiced_frames_falls_back_to_vad_when_nothing_is_confident():
     probs = torch.tensor([0.3, 0.1, 0.35])
     levels = torch.tensor([-20.0, -20.0, -20.0])
     assert cleanup.voiced_frames(probs, levels, threshold=0.3).tolist() == [True, False, True]
+
+
+def test_level_margin_tracks_sensitivity():
+    # 0.5 must stay on the historic 18 dB so the default output is unchanged.
+    assert cleanup.level_margin_for(0.5) == pytest.approx(18.0)
+    assert cleanup.level_margin_for(0.1) == pytest.approx(30.0)
+    assert cleanup.level_margin_for(0.9) == pytest.approx(6.0)
+    # Monotonically narrowing, and clamped outside the slider's range.
+    margins = [cleanup.level_margin_for(t / 10) for t in range(1, 10)]
+    assert margins == sorted(margins, reverse=True)
+    assert cleanup.level_margin_for(0.0) == cleanup.level_margin_for(0.1)
+    assert cleanup.level_margin_for(1.0) == cleanup.level_margin_for(0.9)
+
+
+def test_sensitivity_slider_changes_the_gate_decision():
+    # Regression guard: the level rule decides nearly every frame, so when it
+    # used one fixed margin the slider was inert — thresholds 0.3–0.9 all gave
+    # identical output (measured 2026-10-03). A graded stem (loud voice down to
+    # faint residue, VAD falling off with level) must respond at every step.
+    torch.manual_seed(1)
+    levels = -12 - torch.rand(4000) * 58
+    probs = (torch.sigmoid((levels + 34) / 5) * 0.95
+             * (0.5 + torch.rand(4000) * 0.5)).clamp(0, 1)
+
+    kept = [float(cleanup.voiced_frames(probs, levels, t / 10).float().mean())
+            for t in range(1, 10)]
+    # Raising sensitivity always cuts strictly more, with no dead steps.
+    for lower, higher in zip(kept, kept[1:]):
+        assert higher < lower - 0.01
+
+
+def test_confident_reference_set_does_not_follow_the_slider():
+    # The confident-voice set only estimates where the voice sits in level, so
+    # it stays pinned at 0.5 — otherwise the margin is measured from a
+    # different baseline at every slider position.
+    # The quiet frames sit under every threshold tested, so only the level
+    # rule can keep them.
+    probs = torch.tensor([0.95, 0.6, 0.05, 0.01])
+    levels = torch.tensor([-20.0, -22.0, -45.0, -80.0])
+    for threshold in (0.2, 0.5, 0.8):
+        voiced = cleanup.voiced_frames(probs, levels, threshold, level_margin_db=18.0)
+        # torch.median of the two confident frames gives -22 dB, so the cutoff
+        # is -40 dB: both quiet frames fall under it at every slider position.
+        assert voiced.tolist()[2:] == [False, False]

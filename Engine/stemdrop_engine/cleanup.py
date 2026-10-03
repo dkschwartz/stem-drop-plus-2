@@ -50,7 +50,10 @@ _VAD_MODEL_PATH = os.path.join(os.path.dirname(__file__), "data", "silero_vad.ji
 _VAD_SAMPLE_RATE = 16000
 _VAD_CHUNK = 512            # Silero's fixed window at 16 kHz (32 ms)
 _RESEPARATE_MODEL = "htdemucs_ft"
-_LEVEL_MARGIN_DB = 18.0      # see voiced_frames()
+_LEVEL_MARGIN_DB = 18.0      # see voiced_frames(); the margin at sensitivity 0.5
+_LEVEL_MARGIN_MIN_DB = 6.0   # margin at sensitivity 0.9 (most aggressive)
+_LEVEL_MARGIN_MAX_DB = 30.0  # margin at sensitivity 0.1 (most permissive)
+_VAD_REFERENCE_PROB = 0.5    # fixed: what counts as a confident-voice frame
 
 
 def _emit(obj: dict) -> None:
@@ -314,7 +317,22 @@ def frame_levels_db(wav, n_frames: int):
     return 20.0 * torch.log10(rms + 1e-9)
 
 
-def voiced_frames(probs, levels_db, threshold: float, level_margin_db: float = _LEVEL_MARGIN_DB):
+def level_margin_for(threshold: float) -> float:
+    """Sensitivity → how far below the confident-voice level still counts as voice.
+
+    The level rule below is what decides nearly every frame, so if it used one
+    fixed margin the Sensitivity slider would do nothing: measured 2026-10-03,
+    thresholds 0.3–0.9 gave byte-identical output. Tying the margin to the
+    slider is what makes it actually control how hard the gate cuts — wide
+    margin = permissive, narrow = aggressive. 0.5 maps to the historic 18 dB,
+    so the default behaves exactly as before.
+    """
+    t = max(0.1, min(0.9, threshold))
+    span = _LEVEL_MARGIN_MAX_DB - _LEVEL_MARGIN_MIN_DB
+    return _LEVEL_MARGIN_MAX_DB - span * (t - 0.1) / 0.8
+
+
+def voiced_frames(probs, levels_db, threshold: float, level_margin_db: float = None):
     """Hybrid voice decision: VAD says voice, OR the frame is loud enough.
 
     Silero is a *speech* detector; on sung vocals it under-fires on sustained
@@ -322,11 +340,23 @@ def voiced_frames(probs, levels_db, threshold: float, level_margin_db: float = _
     frames above −30 dBFS). In a Demucs vocal stem anything within
     `level_margin_db` of the confident-voice level is voice — residue sits
     far below — so those frames are kept regardless of the VAD. With the
-    18 dB default that kept 0% of loud frames from being cut while still
+    18 dB margin that kept 0% of loud frames from being cut while still
     gating 98.6% of frames under −45 dBFS on the same stem.
+
+    `level_margin_db` defaults to `level_margin_for(threshold)` so the
+    Sensitivity slider moves both halves of the decision in the same
+    direction; pass a number to pin it.
+
+    The confident-voice reference set is deliberately fixed at
+    `_VAD_REFERENCE_PROB` rather than following `threshold`: it only exists to
+    estimate where the voice sits in level, and that estimate should not drift
+    as the slider moves or the margin is measured from a different baseline at
+    every setting.
     """
+    if level_margin_db is None:
+        level_margin_db = level_margin_for(threshold)
     by_vad = probs >= threshold
-    confident = probs >= max(threshold, 0.5)
+    confident = probs >= _VAD_REFERENCE_PROB
     if not bool(confident.any()):
         return by_vad
     voice_level = float(levels_db[confident].median())
@@ -373,7 +403,8 @@ def apply_gate(wav, sample_rate: int, threshold: float, pad_ms: float, fade_ms: 
     voiced = voiced_frames(probs, levels, threshold)
     vad_pct = 100.0 * float((probs >= threshold).float().mean()) if probs.numel() else 0.0
     voiced_pct = 100.0 * float(voiced.float().mean()) if voiced.numel() else 0.0
-    _log(f"gate: VAD {vad_pct:.1f}% / VAD+level {voiced_pct:.1f}% of frames voiced at threshold {threshold:.2f}")
+    _log(f"gate: VAD {vad_pct:.1f}% / VAD+level {voiced_pct:.1f}% of frames voiced at "
+         f"threshold {threshold:.2f} (level margin {level_margin_for(threshold):.1f} dB)")
     if voiced_pct == 0.0:
         # No voice found anywhere (instrumental, or threshold far too high):
         # silencing the whole file would be worse than leaving it alone.
