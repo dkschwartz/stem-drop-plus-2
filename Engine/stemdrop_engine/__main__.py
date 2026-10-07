@@ -175,10 +175,15 @@ def main(argv=None) -> int:
         bag_count = 1
         progress_state = {"completed": 0, "last": 0.0}
 
-        def _overall_fraction(raw: float) -> float:
+        def _track(raw: float) -> None:
+            """Count model boundaries. Must run on EVERY callback, not only the
+            throttled ones: a reset seen between two emits would otherwise be
+            lost and the bar would stall (4-model htdemucs_ft stuck at 25%)."""
             if bag_count > 1 and raw + 0.01 < progress_state["last"]:
                 progress_state["completed"] = min(progress_state["completed"] + 1, bag_count - 1)
             progress_state["last"] = raw
+
+        def _overall_fraction(raw: float) -> float:
             overall = (progress_state["completed"] + raw) / bag_count
             return max(0.0, min(1.0, overall))
 
@@ -188,6 +193,7 @@ def main(argv=None) -> int:
             if not audio_length:
                 return
             raw = max(0.0, min(1.0, segment_offset / audio_length))
+            _track(raw)
             now = time.monotonic()
             if now - state["last_emit"] >= 0.5:
                 state["last_emit"] = now
@@ -210,6 +216,10 @@ def main(argv=None) -> int:
         detail = {}
         if any(stem in _DRUM_DETAIL_STEMS for stem in requested_stems):
             detail = _split_drum_detail(separated["drums"], separator.samplerate)
+
+        # Separation is finished by now; demucs' last callback lands short of the
+        # end, so say so explicitly rather than leaving the bar part-filled.
+        _emit({"event": "progress", "fraction": 1.0})
 
         # Instrumental is derived from the other stems, not a Demucs output.
         instrumental = _instrumental_mix(separated) if "instrumental" in requested_stems else None
