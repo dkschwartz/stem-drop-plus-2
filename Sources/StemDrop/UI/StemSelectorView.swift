@@ -11,6 +11,11 @@ struct StemSelectorView: View {
                 Toggle(stem.displayName, isOn: binding(for: stem))
                     .toggleStyle(.checkbox)
             }
+            Text("Instrumental is the full track with the vocals removed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 3)
             Text("Kick, Snare, and Cymbals are frequency-isolated from the Drums stem.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

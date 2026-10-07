@@ -221,11 +221,11 @@ final class AppPreferences: ObservableObject {
         self.normalizeOutput = (defaults.object(forKey: Keys.normalizeOutput) as? Bool) ?? false
         self.trimTrailingSilence = (defaults.object(forKey: Keys.trimTrailingSilence) as? Bool) ?? false
         self.albumTag = defaults.string(forKey: Keys.albumTag) ?? "ISOLATED TRACKS"
-        let defaultOutputRootPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/Adobe/Premiere Pro/12.0", isDirectory: true)
-            .path
+        // Only resolve a default when the user has never picked a folder, so a
+        // chosen folder is never second-guessed and ~/Music/StemDrop is not
+        // created on a Mac that does not use it.
         let storedOutputRootPath = defaults.string(forKey: Keys.outputRootPath)
-            ?? defaultOutputRootPath
+            ?? Self.defaultOutputRoot()
         self.outputRootPath = storedOutputRootPath
 
         let storedOutputMode = defaults.string(forKey: Keys.outputMode).flatMap(OutputMode.init(rawValue:))
@@ -244,4 +244,24 @@ final class AppPreferences: ObservableObject {
         self.cleanupDenoiseAmount = storedDenoiseAmount ?? 0.5
         self.cleanupSplitSpeakers = (defaults.object(forKey: Keys.cleanupSplitSpeakers) as? Bool) ?? false
     }
+
+    /// First-run output folder. An editing machine that keeps stems beside the
+    /// Premiere project wins when that folder exists; every other Mac gets
+    /// ~/Music/StemDrop. `OutputLocation` only honours a root that already
+    /// exists, so the fallback is created here — otherwise the app would write
+    /// beside the source file while Settings claimed otherwise.
+    private static func defaultOutputRoot(
+        fileManager: FileManager = .default
+    ) -> String {
+        let home = fileManager.homeDirectoryForCurrentUser
+        let premiereRoot = home
+            .appendingPathComponent("Documents/Adobe/Premiere Pro/12.0", isDirectory: true)
+        if fileManager.fileExists(atPath: premiereRoot.path) {
+            return premiereRoot.path
+        }
+        let musicRoot = home.appendingPathComponent("Music/StemDrop", isDirectory: true)
+        try? fileManager.createDirectory(at: musicRoot, withIntermediateDirectories: true)
+        return musicRoot.path
+    }
+
 }

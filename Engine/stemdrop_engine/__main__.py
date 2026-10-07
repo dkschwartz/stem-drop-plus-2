@@ -85,6 +85,21 @@ def _split_drum_detail(wav, sample_rate):
     }
 
 
+def _instrumental_mix(separated):
+    """The full track with the vocals removed: every non-vocal stem summed.
+
+    This mirrors Demucs' own vocals/no_vocals two-stem split (no_vocals =
+    mix - vocals); the separated stems sum back to the mix, so adding every
+    non-vocal stem yields the same accompaniment.
+    """
+    total = None
+    for name, wav in separated.items():
+        if name == "vocals":
+            continue
+        total = wav if total is None else total + wav
+    return total
+
+
 def _parse_args(argv):
     parser = argparse.ArgumentParser(prog="stemdrop_engine")
     parser.add_argument("--input", required=True)
@@ -196,8 +211,14 @@ def main(argv=None) -> int:
         if any(stem in _DRUM_DETAIL_STEMS for stem in requested_stems):
             detail = _split_drum_detail(separated["drums"], separator.samplerate)
 
+        # Instrumental is derived from the other stems, not a Demucs output.
+        instrumental = _instrumental_mix(separated) if "instrumental" in requested_stems else None
+
         for name in requested_stems:
-            wav = detail.get(name, separated.get(name))
+            if name == "instrumental":
+                wav = instrumental
+            else:
+                wav = detail.get(name, separated.get(name))
             if wav is None:
                 continue
             out_path = os.path.join(args.out, f"{name}.wav")

@@ -1,10 +1,11 @@
 import Foundation
 
 enum StemType: String, CaseIterable, Codable, Sendable {
-    case vocals, drums, bass, guitar, piano, other, kick, snare, cymbals
+    case instrumental, vocals, drums, bass, guitar, piano, other, kick, snare, cymbals
 
     var displayName: String {
         switch self {
+        case .instrumental: return "Instrumental"
         case .vocals: return "Vocals"
         case .drums: return "Drums"
         case .bass: return "Bass"

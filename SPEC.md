@@ -78,7 +78,8 @@ Full stderr goes to `~/Library/Logs/StemDrop/engine.log`, never to the UI.
 ## 5. Module contracts (the interfaces agents code against)
 
 ```swift
-enum StemType: String, CaseIterable, Codable { case vocals, drums, bass, guitar, piano, other }
+enum StemType: String, CaseIterable, Codable { case instrumental, vocals, drums, bass, guitar, piano, other,
+                                               kick, snare, cymbals }  // instrumental = all non-vocal stems summed
 
 struct AudioJob: Identifiable { let id: UUID; let sourceURL: URL; let stems: Set<StemType>
                                 var status: JobStatus; var progress: Double; var outputs: [URL] }
@@ -169,7 +170,7 @@ V4 `lextoumbourou/mlx-demucs` supports htdemucs_6s → candidate for v1.2 behind
 Model cache: HF hub `models--adefossez--HTDemucs-6s`, 54.9 MB. ModelManager sets `HF_HOME` to `~/Library/Application Support/StemDrop/models` so weights live there, not in `~/.cache`.
 
 ## 11. Real test file (Daniel, 2026-09-19)
-`/Volumes/BIG/Lacie2/Adobe/Premiere Pro/12.0/F.S.Blumm & Nils Frahm - Presidential Tub (Official Audio).mp3` — 6:38, 48 kHz stereo MP3, 13.4 MB. Extract **Drums** only. Output goes beside it on the external volume. Use for the §8 end-to-end run and the timing number.
+A 6:38, 48 kHz stereo MP3, 13.4 MB, held on an external volume (path kept local). Extract **Drums** only. Output goes beside it on the external volume. Use for the §8 end-to-end run and the timing number.
 First real run 2026-09-19 (engine CLI, not the app): drums only, 26.5 s wall including first model download; output 24-bit WAV verified non-silent (peak −0.1 dB). §8.6 target met.
 
 ## 12. Metadata + default format change (Daniel, 2026-09-19)
@@ -202,7 +203,8 @@ AIFF (ID3), FLAC and ALAC all show Artist + Album. Therefore:
 - **Sound effects**: `NSSound(named: "Tink")` when a job's separation starts,
   `NSSound(named: "Glass")` when its exports finish. Pref `playSound` gates both.
 - **Output location = `<outputRoot>/<Song base name> STEM SPLIT/`**, created per job.
-  `outputRoot` default = `~/Documents/Adobe/Premiere Pro/12.0`
+  `outputRoot` default = `~/Documents/Adobe/Premiere Pro/12.0` when that folder exists,
+  otherwise `~/Music/StemDrop`, which is created on first launch
   (pref key `outputRootPath`; falls back to the source's folder if the path no longer exists).
   Conflict numbering applies to files inside that folder. "Same folder as source" is no longer
   the default; it remains selectable in Settings as an option (`outputMode`: `root` | `sameFolder`).
